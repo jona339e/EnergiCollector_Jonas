@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <SPI.h>
 #include <WiFi.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
@@ -26,7 +27,7 @@ Config config;
 // for wifi
 WiFiClient client;
 IPAddress subnet(255, 255, 255, 0);
-
+IPAddress dns(8, 8, 8, 8);
 
 // for asyncWebserver
 AsyncWebServer server(80);
@@ -49,11 +50,6 @@ struct dataLog {
   time_t time;
 };
 volatile int accumulatedValue = 0;
-
-
-// for websocket & server
-AsyncWebServer server(80);
-AsyncWebSocket ws("/ws");
 
 
 // shared
@@ -118,7 +114,7 @@ void setup() {
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
 
-  
+
 
   // create queue
   logQueue = xQueueCreate(20, sizeof(dataLog));
@@ -144,6 +140,10 @@ void loop() {
 
 // wifi connection
 void setupWifi(){
+
+
+  IPAddress ip;
+  WiFi.config(ip.fromString(config.ip), ip.fromString(config.gateway), subnet, dns);
   WiFi.begin(config.ssid, config.password);
   Serial.println("Connecting to WiFi..");
   while (WiFi.status() != WL_CONNECTED) {
