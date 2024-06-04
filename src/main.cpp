@@ -47,6 +47,8 @@ struct dataLog {
   time_t time;
 };
 volatile int accumulatedValue = 0;
+volatile dataLog latestData;
+
 
 
 // shared
@@ -126,11 +128,15 @@ void setup() {
 
 
   // create queue & create mutex
-  logQueue = xQueueCreate(20, sizeof(dataLog));
+  logQueue = xQueueCreate(100, sizeof(dataLog));
   SDMutex = xSemaphoreCreateMutex();
 
 
   // setup tasks
+  xTaskCreate(websocketCleanup, "websocketCleanup", 512, NULL, 1, NULL);
+  xTaskCreate(handleData, "handleData", 4096, NULL, 2, NULL);
+  xTaskCreate(simulateImpulse, "simulateImpulse", 512, NULL, 3, NULL);
+
 
 
   vTaskDelay(1000);
@@ -211,6 +217,12 @@ void setupSD(){
   if(cardType == CARD_NONE){
     Serial.println("No SD card attached");
     return;
+  }
+
+  // check if json file exist
+  // if it doesn't exist, create it
+  if(!SD.exists("/dataLog.json")){
+    createDataLog();
   }
 
 }
@@ -429,7 +441,7 @@ void addRoutes(){
 
 // handle websocket event - not implemented yet
 void handleWebSocketEvent(void *arg, uint8_t *data, size_t len){
-// handle websocket event when data is recieve from client.
+// handle websocket event when data is recieved from client.
 // this could be the client requesting to download the whole log.
 // or the client requesting to download a single log.
 
@@ -518,23 +530,93 @@ void createDataLog(){
 
 // add data to log
 void addDataLog(dataLog log){
+  // first read the json file and deserialize it
+  // then add the new data to the json object
+  // then re-seralize the json object and overwrite it to the file
+
+  // create json object
   JsonDocument doc;
-  File jsonFile = SD.open("dataLog.json", "r"); 
-  if (!jsonFile) {
-    Serial.println("Error opening JSON file.");
+  File dataLog = SD.open("/dataLog.json", "r");
+  if(!dataLog){
+    Serial.println("Failed to open dataLog file");
     return;
   }
-  deserializeJson(doc, jsonFile);
-  jsonFile.close();
 
+  // deserialize json object
+  deserializeJson(doc, dataLog);
+  dataLog.close();
+
+  // add data to json object
+  doc["accumulatedValue"] = log.accumulatedValue;
+  doc["time"] = log.time;
+
+  // re-serialize json object to file
+  File dataLog = SD.open("/dataLog.json", "w");
+  if(!dataLog){
+    Serial.println("Failed to open dataLog file");
+    return;
+  }
+
+
+  if(serializeJson(doc, dataLog) == 0){
+    Serial.println("Failed to write to file");
+  }
+
+
+  dataLog.close();
 
 }
 
 
 // tasks
 // websocket cleanup task
-// handle queue task / log data task
-// send data to client task
+void websocketCleanup( void * pvParameters ){
+  while(1){
+    ws.cleanupClients();
+    vTaskDelay(15000);
+  }
+}
+
+
+// add datalog to file task
+void handleData( void * pvParameters){
+  while(1){
+    dataLog log;
+    if(xQueueReceive(logQueue, &log, portMAX_DELAY)){
+      // take mutex if available
+      // then call function addDataLog(dataLog log) to add the log to the file
+      if(xSemaphoreTake(SDMutex, portMAX_DELAY) == pdTRUE){
+        addDataLog(log);
+        xSemaphoreGive(SDMutex);
+      }
+
+      // then notify client
+      notifyClientSingleLog(log);
+      
+      
+    }
+  }
+
+}
+
+
+// impulse simulation task
+void simulateImpulse( void * pvParameters){
+  vTaskDelay(5000);
+  while(1){
+    // simulate impulse
+    // send impulse to isrImpulse
+    // send impulse every 80ms
+    // send impulse in an interval of 10 seconds
+    // send impulse in a random interval of 1-10 impulses
+    int randomImpulse = random(1, 10);
+    for(int i = 0; i < randomImpulse; i++){
+      digitalWrite(interruptPin, HIGH);
+      vTaskDelay(80);
+    }
+    vTaskDelay(10000 - (randomImpulse * 80));
+  }
+}
 
 
 #pragma region Opgave formulering
