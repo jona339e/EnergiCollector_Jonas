@@ -18,8 +18,8 @@ const int interruptPin = 13; // change if connected to another pin
 struct Config {
   char ssid[32];
   char password[32];
-  char ip[32];
-  char gateway[32];
+  IPAddress ip;
+  IPAddress gateway;
 };
 Config config;
 
@@ -29,11 +29,8 @@ WiFiClient client;
 IPAddress subnet(255, 255, 255, 0);
 IPAddress dns(8, 8, 8, 8);
 
-// for asyncWebserver
+// for webserver
 AsyncWebServer server(80);
-
-
-//for websocket
 AsyncWebSocket ws("/ws");
 
 
@@ -59,19 +56,18 @@ SemaphoreHandle_t SDMutex;
 
 // prototypes
 void IRAM_ATTR isrImpulse();
-void setupWifi();
+bool setupWifi();
 void setupSD();
 int setupConfig();
 void saveConfig();
 void createAccessPoint();
-void hostConfigHTML();
-void mdnsInit();
 void websocketInit();
 void addRoutes();
-void notifyClient();
-void handleWebSocketEvent();
-String processor(const String& var);
-
+void handleWebSocketEvent(void *arg, uint8_t *data, size_t len);
+void notifyClientWholeLog();
+void notifyClientSingleLog();
+void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
+             void *arg, uint8_t *data, size_t len);
 
 
 void setup() {
@@ -95,38 +91,49 @@ void setup() {
     case 1:
       // config file is empty
       createAccessPoint();
-      hostConfigHTML();
+      return; // make sure to return or the setup will continue
 
       break;
     case 2:
       // config file is not empty
-      
-      break;
 
+     break;
   }
-  
+
 
   // setup wifi
-  setupWifi();
+  if(!setupWifi()){
+    // if failed to connect to wifi, create access point
+    createAccessPoint();
+    return;
+  }
+
+
+  // setup websocket
+  websocketInit();
+  addRoutes();
 
 
   // setup time
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  struct tm timeinfo;
+  if(!getLocalTime(&timeinfo)){
+    Serial.println("Failed to obtain time");
+    return;
+  }
+  // print out time
+  Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
 
 
-
-
-  // create queue
+  // create queue & create mutex
   logQueue = xQueueCreate(20, sizeof(dataLog));
-
-
-  // create mutex
+  SDMutex = xSemaphoreCreateMutex();
 
 
   // setup tasks
 
 
-
+  vTaskDelay(1000);
   // after setup, attatch interrupt
   attachInterrupt(digitalPinToInterrupt(interruptPin), isrImpulse, RISING);
 
@@ -139,18 +146,32 @@ void loop() {
 
 
 // wifi connection
-void setupWifi(){
-
-
+bool setupWifi(){
   IPAddress ip;
-  WiFi.config(ip.fromString(config.ip), ip.fromString(config.gateway), subnet, dns);
+  WiFi.config(config.ip, config.gateway, subnet, dns);
   WiFi.begin(config.ssid, config.password);
-  Serial.println("Connecting to WiFi..");
+  Serial.print("Connecting to WiFi.."); 
+  int i = 0;
   while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
+    if(i >= 30)
+    {
+      Serial.println("Failed to connect to WiFi");
+      return false;
+    }
+    vTaskDelay(1000);
     Serial.print(".");
   }
+  Serial.println();
+  if(!MDNS.begin("Energy_Collector")){
+    Serial.println("Error setting up MDNS responder");
+    return false;
+  }
+  MDNS.addService("http", "tcp", 80);
   Serial.println("Connected to WiFi");
+  Serial.println("Address: Energy_Collector.local");
+  Serial.println("IpAddress: " + WiFi.localIP());
+
+  return true;
 }
 
 
@@ -180,7 +201,7 @@ void IRAM_ATTR isrImpulse(){
 
 // sd card setup reference - https://randomnerdtutorials.com/esp32-microsd-card-arduino/
 void setupSD(){
-  if(!SD.begin(5)){
+  if(!SD.begin()){
     Serial.println("Card Mount Failed");
     return;
   }
@@ -193,6 +214,7 @@ void setupSD(){
   }
 
 }
+
 
 /* SUMMARY:
   returns 0 if an error occurs
@@ -223,10 +245,24 @@ int setupConfig(){
   }
 
   // give config struct the values from the config file
-  strlcpy(config.ssid, doc["ssid"] | "", sizeof(config.ssid));
-  strlcpy(config.password, doc["password"] | "", sizeof(config.password));
-  strlcpy(config.ip, doc["ip"] | "", sizeof(config.ip));
-  strlcpy(config.gateway, doc["gateway"] | "", sizeof(config.gateway));
+  String localSSID = doc["ssid"];
+  String localPassword = doc["password"];
+  String localIP = doc["ip"];
+  String localGateway = doc["gateway"];
+
+  // copy values to config struct
+  strlcpy(config.ssid, localSSID.c_str(), sizeof(config.ssid));
+  strlcpy(config.password, localPassword.c_str(), sizeof(config.password));
+  config.ip.fromString(localIP);
+  config.gateway.fromString(localGateway);
+
+
+  // write out the config
+  Serial.println("Config file content:");
+  Serial.println(config.ssid);
+  Serial.println(config.password);
+  Serial.println(config.ip);
+  Serial.println(config.gateway);
 
   configFile.close();
   
@@ -234,6 +270,7 @@ int setupConfig(){
   // since char arrays are null terminated, we can check if the first element is null to figure out if it is empty (i hope)
   if (config.password[0] == '\0' || config.ssid[0] == '\0' || config.ip[0] == '\0' || config.gateway[0] == '\0')
   {
+    Serial.println("Config file is empty");
     return 1;
   }
 
@@ -242,61 +279,262 @@ int setupConfig(){
 }
 
 
-// save config to file - not implemented yet
+// save config to file
 void saveConfig(){
+  Serial.println("Saving config to file");
+  // save config to file
+  File configFile = LittleFS.open("/config.json", "w");
+  if(!configFile){
+    Serial.println("Failed to open config file for writing");
+    return;
+  }
+
+  // create json object
+  JsonDocument doc;
+  doc["ssid"] = config.ssid;
+  doc["password"] = config.password;
+  doc["ip"] = config.ip;
+  doc["gateway"] = config.gateway;
+
+  // serialize json object to file
+  if(serializeJson(doc, configFile) == 0){
+    Serial.println("Failed to write to file");
+  }
+
+  configFile.close();
 
 }
 
 
-// create access point - not implemented yet
+// create access point
 void createAccessPoint(){
+  Serial.println("Setting AP (Energy_Collector_Wifi)");
+  WiFi.softAP("Energy_Collector_Wifi", NULL);
 
-}
+  IPAddress IP = WiFi.softAPIP();
+  Serial.print("AP IP address: ");
+  Serial.println(IP);
 
+  // route for serving html
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(LittleFS, "/wifimanager.html", "text/html");
+  });
 
-// host configHTML - not implemented yet
-void hostConfigHTML(){
+  server.serveStatic("/", LittleFS, "/");
 
-}
+  server.on("/", HTTP_POST, [](AsyncWebServerRequest *request) {
+    int params = request->params();
+    for(int i=0;i<params;i++){
+      AsyncWebParameter* p = request->getParam(i);
+      if(p->isPost()){
+        // HTTP POST ssid value
+        if (p->name() == "ssid") {
+          strlcpy(config.ssid, p->value().c_str(), sizeof(config.ssid));
+          Serial.print("SSID set to: ");
+          Serial.println(config.ssid);
 
+        }
+        // HTTP POST pass value
+        if (p->name() == "pass") {
+          strlcpy(config.password, p->value().c_str(), sizeof(config.password));
+          Serial.print("Password set to: ");
+          Serial.println(config.password);
 
-// mdns init - not implemented yet
-void mdnsInit(){
+        }
+        // HTTP POST ip value
+        if (p->name() == "ip") {
+          config.ip.fromString(p->value().c_str());
+          Serial.print("IP Address set to: ");
+          Serial.println(config.ip);
 
+        }
+        // HTTP POST gateway value
+        if (p->name() == "gateway") {
+          config.gateway.fromString(p->value().c_str());
+          Serial.print("Gateway set to: ");
+          Serial.println(config.gateway);
+
+        }
+        
+      }
+    }
+    request->send(200, "text/plain", "Done. ESP will restart, connect to your router and go to IP address: " + config.ip.toString());
+    saveConfig();
+    vTaskDelay(3000);
+    ESP.restart();
+  });
+  server.begin();
 }
 
 
 // websocket init - not implemented yet
 void websocketInit(){
+  ws.onEvent(onEvent);
+  server.addHandler(&ws);
+}
 
+
+void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
+             void *arg, uint8_t *data, size_t len){
+
+// WS_EVT_CONNECT when a client has logged in,
+// WS_EVT_DISCONNECT when a client has logged out,
+// WS_EVT_DATA when a data packet is received from the client.
+// WS_EVT_PONG in response to a ping request,
+// WS_EVT_ERROR when an error is received from the client,
+switch (type) {
+    case WS_EVT_CONNECT:
+      Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+      break;
+    case WS_EVT_DISCONNECT:
+      Serial.printf("WebSocket client #%u disconnected\n", client->id());
+      break;
+    case WS_EVT_DATA:
+      // handle data
+      handleWebSocketEvent(arg, data, len);
+      break;
+    case WS_EVT_PONG:
+    case WS_EVT_ERROR:
+      break;
+  }
 }
 
 
 // add routes - not implemented yet
 void addRoutes(){
 
-}
+
+  // Route for root / web page
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(LittleFS, "/index.html", String(), false);
+  });
+  
+
+  // Route to load style.css file
+  server.on("/style.css", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(LittleFS, "/style.css", "text/css");
+  });
 
 
-// notify client - not implemented yet
-void notifyClient(){
+  // Route to load script.js file
+  server.on("/script.js", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(LittleFS, "/script.js", "text/javascript");
+  });
+
+
+  server.begin();
 
 }
 
 
 // handle websocket event - not implemented yet
-void handleWebSocketEvent(){
+void handleWebSocketEvent(void *arg, uint8_t *data, size_t len){
+// handle websocket event when data is recieve from client.
+// this could be the client requesting to download the whole log.
+// or the client requesting to download a single log.
+
+  // create json object
+  JsonDocument doc;
+  deserializeJson(doc, data, len);
+
+  // check if the client wants the whole log
+  if(doc["request"] == "wholeLog"){
+    notifyClientWholeLog();
+  }
+
+  // check if the client wants a single log
+  if(doc["request"] == "singleLog"){
+    dataLog log;
+    log.accumulatedValue = doc["accumulatedValue"];
+    log.time = doc["time"];
+    notifyClientSingleLog(log);
+  }
+
+
 
 }
 
 
-// route request processor - not implemented yet
-String processor(const String& var){
+// send json data to client
+void notifyClientWholeLog(){
+  File dataLog = SD.open("/dataLog.json", "r");
 
-  return String();
+  if(!dataLog){
+    Serial.println("Failed to open dataLog file");
+    return;
+  }
+
+  // create json object
+  JsonDocument doc;
+  deserializeJson(doc, dataLog);
+  dataLog.close();
+
+  // serialize json object to string
+  String output;
+  serializeJson(doc, output);
+
+  // send json object to client
+  ws.textAll(output);
+
 }
 
 
+void notifyClientSingleLog(dataLog log){
+  JsonDocument doc;
+  doc["accumulatedValue"] = log.accumulatedValue;
+  doc["time"] = log.time;
+
+  String output;
+  serializeJson(doc, output);
+
+  ws.textAll(output);
+
+  
+}
+
+
+// create json file "dataLog.json" if it doesn't exist on SD-card
+// dataLog should contain the DataLog struct
+void createDataLog(){
+  File dataLog = SD.open("/dataLog.json", FILE_WRITE);
+  if(!dataLog){
+    Serial.println("Failed to open dataLog file");
+    return;
+  }
+
+  // create json object
+  JsonDocument doc;
+  doc["accumulatedValue"] = 0;
+  doc["time"] = 0;
+
+  // serialize json object to file
+  if(serializeJson(doc, dataLog) == 0){
+    Serial.println("Failed to write to file");
+  }
+
+  dataLog.close();
+}
+
+
+// add data to log
+void addDataLog(dataLog log){
+  JsonDocument doc;
+  File jsonFile = SD.open("dataLog.json", "r"); 
+  if (!jsonFile) {
+    Serial.println("Error opening JSON file.");
+    return;
+  }
+  deserializeJson(doc, jsonFile);
+  jsonFile.close();
+
+
+}
+
+
+// tasks
+// websocket cleanup task
+// handle queue task / log data task
+// send data to client task
 
 
 #pragma region Opgave formulering
