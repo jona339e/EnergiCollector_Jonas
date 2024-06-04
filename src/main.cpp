@@ -98,7 +98,7 @@ void setup() {
 
       break;
     case 2:
-      // config file is not empty
+      // config file is not empty so do nothing
 
      break;
   }
