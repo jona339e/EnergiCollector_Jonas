@@ -67,7 +67,8 @@ void websocketInit();
 void addRoutes();
 void handleWebSocketEvent(void *arg, uint8_t *data, size_t len);
 void notifyClientWholeLog();
-void notifyClientSingleLog();
+void notifyClientSingleLog(dataLog log);
+void sendLogToClient(AsyncWebSocketClient *client);
 void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
              void *arg, uint8_t *data, size_t len);
 
@@ -394,21 +395,51 @@ void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType 
 // WS_EVT_DATA when a data packet is received from the client.
 // WS_EVT_PONG in response to a ping request,
 // WS_EVT_ERROR when an error is received from the client,
-switch (type) {
+
+  switch (type) {
     case WS_EVT_CONNECT:
       Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+      // Send the entire log to the newly connected client
+      sendLogToClient(client);
       break;
     case WS_EVT_DISCONNECT:
       Serial.printf("WebSocket client #%u disconnected\n", client->id());
       break;
     case WS_EVT_DATA:
-      // handle data
+      // Handle data
       handleWebSocketEvent(arg, data, len);
       break;
     case WS_EVT_PONG:
     case WS_EVT_ERROR:
       break;
   }
+}
+
+
+
+void sendLogToClient(AsyncWebSocketClient *client) {
+  File dataLogFile = SD.open("/dataLog.json", "r");
+  if (!dataLogFile) {
+    Serial.println("Failed to open dataLog file");
+    return;
+  }
+
+  // Create JSON object
+  DynamicJsonDocument doc(4096);
+  DeserializationError error = deserializeJson(doc, dataLogFile);
+  dataLogFile.close();
+
+  if (error) {
+    Serial.println("Failed to read file, using default configuration");
+    return;
+  }
+
+  // Serialize JSON object to string
+  String output;
+  serializeJson(doc, output);
+
+  // Send JSON object to the connected client
+  client->text(output);
 }
 
 
@@ -618,6 +649,13 @@ void simulateImpulse( void * pvParameters){
   }
 }
 
+
+// hvad jeg mangler at implementere
+// send hele loggen til client ved start
+// download json fil
+// slet json fil fra client
+// sæt initial værdi for data sensor
+// anmod om at nulstille esp32 konfiguration (wifi)
 
 #pragma region Opgave formulering
 /*
