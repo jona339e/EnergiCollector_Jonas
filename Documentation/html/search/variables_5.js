@@ -1,5 +1,5 @@
 var searchData=
 [
-  ['latestdata_0',['latestData',['../main_8cpp.html#a8a1f1b35456f90eb73338b47b3e7464e',1,'main.cpp']]],
-  ['logqueue_1',['logQueue',['../main_8cpp.html#ad622c133a9251a4c1deba1bba13fe580',1,'main.cpp']]]
+  ['interruptpin_0',['interruptPin',['../main_8cpp.html#a794d0155bba4d660e0cec7094b54a6a7',1,'main.cpp']]],
+  ['ip_1',['ip',['../struct_config.html#aed5bae17e30f26152994aababe55d12d',1,'Config']]]
 ];

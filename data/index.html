@@ -6,10 +6,20 @@
   <title>Energy Collector</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://code.highcharts.com/highcharts.js"></script>
+  <script src="https://code.highcharts.com/highcharts-more.js"></script>
+  <script src="https://code.highcharts.com/modules/exporting.js"></script>
+  <script src="https://code.highcharts.com/modules/export-data.js"></script>
+  <script src="https://code.highcharts.com/modules/accessibility.js"></script>
 </head>
 <body>
-  <div id="container" style="width:100%; height:400px;"></div>
-  <button class="button-on" id="deleteBtn">Delete Datalog</button>
-  <script src="script.js"></script>
+  <figure class="highcharts-figure">
+    <div id="container"></div>
+  </figure>
+  <div class="button-container">
+    <button class="index-button" id="downloadBtn">Download Datalog</button>
+    <button class="index-button" id="deleteBtn">Delete Datalog</button>
+    <button class="index-button" id="configBtn">Enter Configuration Mode</button>
+    <script src="script.js"></script>
+  </div>
 </body>
 </html>

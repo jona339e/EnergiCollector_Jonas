@@ -9,6 +9,7 @@ var searchData=
   ['setupsd_6',['setupSD',['../main_8cpp.html#a15cdd483b038376b20db9ddf1f971698',1,'main.cpp']]],
   ['setupwifi_7',['setupWifi',['../main_8cpp.html#a7299509641ed1473e2de91534b79016c',1,'main.cpp']]],
   ['simulateimpulse_8',['simulateImpulse',['../main_8cpp.html#a97fe226e7da40c92223e1ee4d2cba2b5',1,'main.cpp']]],
-  ['ssid_9',['ssid',['../struct_config.html#aad5eadd9c594206a338ecc46e7c877be',1,'Config']]],
-  ['subnet_10',['subnet',['../main_8cpp.html#a89cf134ada28d8ce0192d9fcbc83614a',1,'main.cpp']]]
+  ['simulateimpulsehandle_9',['simulateImpulseHandle',['../main_8cpp.html#a3ff736796bf395ee25b5de80c32fc386',1,'main.cpp']]],
+  ['ssid_10',['ssid',['../struct_config.html#aad5eadd9c594206a338ecc46e7c877be',1,'Config']]],
+  ['subnet_11',['subnet',['../main_8cpp.html#a89cf134ada28d8ce0192d9fcbc83614a',1,'main.cpp']]]
 ];

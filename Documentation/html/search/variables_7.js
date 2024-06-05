@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['password_0',['password',['../struct_config.html#af50dbf019c008279c7cffce404a5ff11',1,'Config']]]
+  ['ntpserver_0',['ntpServer',['../main_8cpp.html#a6bd950625db0f240acc63a9cb41873f6',1,'main.cpp']]]
 ];

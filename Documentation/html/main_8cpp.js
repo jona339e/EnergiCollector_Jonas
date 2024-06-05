@@ -10,7 +10,6 @@ var main_8cpp =
     [ "dns", "main_8cpp.html#aba29cfda2a60ddbefaf48bd79f62f0de", null ],
     [ "handleData", "main_8cpp.html#a4502c52215a9484795c88cde16fd9495", null ],
     [ "handleWebSocketEvent", "main_8cpp.html#acb8133955addfd29417f61362c65aa65", null ],
-    [ "isrImpulse", "main_8cpp.html#a7d616ec3b510a4b57ad8273f958f6a9d", null ],
     [ "loop", "main_8cpp.html#afe461d27b9c48d5921c00d521181f12f", null ],
     [ "notifyClientSingleLog", "main_8cpp.html#a27c58f8d30e663d8f488172620bce440", null ],
     [ "notifyClientWholeLog", "main_8cpp.html#a8803b015bacc84246ed3da5665747502", null ],
@@ -32,10 +31,13 @@ var main_8cpp =
     [ "config", "main_8cpp.html#a4a8dd3a2de125b72d4fe6251a0a271b5", null ],
     [ "daylightOffset_sec", "main_8cpp.html#abcecff6206d272c30174ca268e2e6f0a", null ],
     [ "gmtOffset_sec", "main_8cpp.html#a6c7db28543c3b2ef692f8dcb63964f2b", null ],
+    [ "handleDataHandle", "main_8cpp.html#abac36b5d9302bd0638d79773d640b7ff", null ],
     [ "interruptPin", "main_8cpp.html#a794d0155bba4d660e0cec7094b54a6a7", null ],
     [ "latestData", "main_8cpp.html#a8a1f1b35456f90eb73338b47b3e7464e", null ],
     [ "logQueue", "main_8cpp.html#ad622c133a9251a4c1deba1bba13fe580", null ],
     [ "ntpServer", "main_8cpp.html#a6bd950625db0f240acc63a9cb41873f6", null ],
     [ "SDMutex", "main_8cpp.html#ab9cdbf2d870dc6e35c6202aba88e07af", null ],
-    [ "timeinfo", "main_8cpp.html#a0fe23e6116ec3d23cb699f4c1b49579c", null ]
+    [ "simulateImpulseHandle", "main_8cpp.html#a3ff736796bf395ee25b5de80c32fc386", null ],
+    [ "timeinfo", "main_8cpp.html#a0fe23e6116ec3d23cb699f4c1b49579c", null ],
+    [ "websocketCleanupHandle", "main_8cpp.html#a974072ad21e9217feaab8f7a1b9b16d8", null ]
 ];
