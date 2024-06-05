@@ -1127,9 +1127,3 @@ void deleteDataLogFile() {
     Serial.println("dataLog.json does not exist");
   }
 }
-
-
-
-
-
-// anmod om at nulstille esp32 konfiguration (wifi) *
