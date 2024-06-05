@@ -2,6 +2,13 @@ let socket;
 let chart;
 let dataPoints = [];
 
+function deleteDataLogFile() {
+  socket.send(JSON.stringify({ request: "deleteDataLogFile" }));
+  // empty datapoints
+  dataPoints = [];
+  updateChart();
+}
+
 document.addEventListener("DOMContentLoaded", function () {
   // Initialize WebSocket
   socket = new WebSocket(`ws://${window.location.hostname}/ws`);
@@ -12,13 +19,18 @@ document.addEventListener("DOMContentLoaded", function () {
     socket.send(JSON.stringify({ request: "wholeLog" }));
   };
 
+  // Delete button click event handler
+  document.getElementById("deleteBtn").addEventListener("click", function() {
+    deleteDataLogFile();
+  });
+
   socket.onmessage = function (event) {
     let data = JSON.parse(event.data);
     console.log("Data received: ", data);
 
-    if (Array.isArray(data)) {
-      // If data is an array, it is the whole log
-      dataPoints = data.map(entry => {
+    if (data.log && Array.isArray(data.log)) {
+      // If data.log is an array, it is the whole log
+      dataPoints = data.log.map(entry => {
         return {
           x: entry.time * 1000,
           y: entry.accumulatedValue

@@ -35,11 +35,10 @@ AsyncWebSocket ws("/ws");
 
 
 // for time -- reference: https://randomnerdtutorials.com/esp32-date-time-ntp-client-server-arduino/
-const char* ntpServer = "0.dk.pool.ntp.org"; // https://www.ntppool.org/zone/dk taget herfra
+const char* ntpServer = "pool.ntp.org"; // https://www.ntppool.org/zone/dk taget herfra
 const long gmtOffset_sec = 3600;  
 const int daylightOffset_sec = 3600;
 struct tm timeinfo;
-
 
 // for logging
 struct dataLog {
@@ -71,12 +70,19 @@ void notifyClientSingleLog(dataLog log);
 void sendLogToClient(AsyncWebSocketClient *client);
 void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
              void *arg, uint8_t *data, size_t len);
+void websocketCleanup( void * pvParameters );
+void handleData( void * pvParameters);
+void simulateImpulse( void * pvParameters);
+void createDataLog();
+void addDataLog(dataLog log);
+void deleteDataLogFile();
+
 
 
 void setup() {
   Serial.begin(115200);
   // set pin to low
-  pinMode(interruptPin, INPUT_PULLDOWN);
+  pinMode(interruptPin, OUTPUT);
   digitalWrite(interruptPin, LOW);
 
 
@@ -116,10 +122,11 @@ void setup() {
   websocketInit();
   addRoutes();
 
+  vTaskDelay(1000);
 
   // setup time
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-  struct tm timeinfo;
+  // struct tm timeinfo;
   if(!getLocalTime(&timeinfo)){
     Serial.println("Failed to obtain time");
     return;
@@ -129,20 +136,20 @@ void setup() {
 
 
   // create queue & create mutex
-  logQueue = xQueueCreate(100, sizeof(dataLog));
+  logQueue = xQueueCreate(100, sizeof( struct dataLog));
   SDMutex = xSemaphoreCreateMutex();
 
 
   // setup tasks
-  xTaskCreate(websocketCleanup, "websocketCleanup", 512, NULL, 1, NULL);
+  xTaskCreate(websocketCleanup, "websocketCleanup", 2048, NULL, 1, NULL);
   xTaskCreate(handleData, "handleData", 4096, NULL, 2, NULL);
-  xTaskCreate(simulateImpulse, "simulateImpulse", 512, NULL, 3, NULL);
+  xTaskCreate(simulateImpulse, "simulateImpulse", 2048, NULL, 3, NULL);
 
 
-
-  vTaskDelay(1000);
   // after setup, attatch interrupt
-  attachInterrupt(digitalPinToInterrupt(interruptPin), isrImpulse, RISING);
+  vTaskDelay(1000);
+  // attachInterrupt(digitalPinToInterrupt(interruptPin), isrImpulse, RISING);
+
 
 }
 
@@ -155,6 +162,8 @@ void loop() {
 // wifi connection
 bool setupWifi(){
   IPAddress ip;
+  // WiFi.mode(WIFI_STA);
+
   WiFi.config(config.ip, config.gateway, subnet, dns);
   WiFi.begin(config.ssid, config.password);
   Serial.print("Connecting to WiFi.."); 
@@ -173,36 +182,12 @@ bool setupWifi(){
     Serial.println("Error setting up MDNS responder");
     return false;
   }
-  MDNS.addService("http", "tcp", 80);
+  // MDNS.addService("http", "tcp", 80);
   Serial.println("Connected to WiFi");
   Serial.println("Address: Energy_Collector.local");
-  Serial.println("IpAddress: " + WiFi.localIP());
+  // Serial.println("IpAddress: " + WiFi.localIP());
 
   return true;
-}
-
-
-// interrupt function
-void IRAM_ATTR isrImpulse(){
-  // on interrupt rising edge from the 2nd esp32
-  // send queue message to be handled in a task
-  // message should contain the time of the interrupt & accumulated impulses
-
-  // create log
-  dataLog log;
-
-  // get time
-  getLocalTime(&timeinfo);
-
-  // set time  and accumulatedvalue in log
-  log.time = mktime(&timeinfo);
-  log.accumulatedValue = ++accumulatedValue;
-
-  // send log to queue
-  xQueueSendFromISR(logQueue, &log, NULL);
-  
-  // set pinmode to low
-  digitalWrite(interruptPin, LOW);
 }
 
 
@@ -223,17 +208,55 @@ void setupSD(){
   // check if json file exist
   // if it doesn't exist, create it
   if(!SD.exists("/dataLog.json")){
+    Serial.println("Creating dataLog.json");
     createDataLog();
   }
+  else{
+    Serial.println("Reading dataLog.json");
 
+    // Open the dataLog.json file
+    File dataLogFile = SD.open("/dataLog.json", FILE_READ);
+    if(!dataLogFile){
+      Serial.println("Failed to open dataLog file");
+      return;
+    }
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, dataLogFile);
+    if(error){
+      Serial.println("Failed to read file, using default configuration");
+      return;
+    }
+    dataLogFile.close();
+
+    // Parse the JSON content
+    JsonArray logArray = doc["log"].as<JsonArray>();
+
+    // Print the size of the JSON array
+    Serial.print("Log array size: ");
+    Serial.println(logArray.size());
+
+    // Ensure the array is not empty
+    if (logArray.size() > 0) {
+      // Get the last element
+      JsonObject lastLog = logArray[logArray.size() - 1];
+
+      // Extract the last accumulated value
+      accumulatedValue = lastLog["accumulatedValue"].as<int>();
+
+      Serial.print("Last Accumulated Value: ");
+      Serial.println(accumulatedValue);
+      vTaskDelay(2000);
+    } else {
+      Serial.println("No log entries found");
+    }
+  }
 }
 
 
-/* SUMMARY:
-  returns 0 if an error occurs
-  return 1 if config file is empty
-  return 2 if config file is not empty
-*/
+/// @brief Returns 0 if an error has occurred while mounting LittleFS, 1 if the config file is empty, and 2 if the config file is not empty.
+/// @return int 0, 1 or 2
+/// @note This function reads the config file and sets the ssid, password, ip and gateway from the config file.
+/// @param void
 int setupConfig(){
   // initialize LittleFS
   if(!LittleFS.begin()){
@@ -425,7 +448,7 @@ void sendLogToClient(AsyncWebSocketClient *client) {
   }
 
   // Create JSON object
-  DynamicJsonDocument doc(4096);
+  JsonDocument doc;
   DeserializationError error = deserializeJson(doc, dataLogFile);
   dataLogFile.close();
 
@@ -441,6 +464,7 @@ void sendLogToClient(AsyncWebSocketClient *client) {
   // Send JSON object to the connected client
   client->text(output);
 }
+
 
 
 // add routes - not implemented yet
@@ -493,6 +517,12 @@ void handleWebSocketEvent(void *arg, uint8_t *data, size_t len){
     notifyClientSingleLog(log);
   }
 
+  String request = doc["request"];
+  if (request == "deleteDataLogFile") {
+    // Call the function to delete the data log file
+    deleteDataLogFile();
+  }
+
 
 
 }
@@ -500,25 +530,28 @@ void handleWebSocketEvent(void *arg, uint8_t *data, size_t len){
 
 // send json data to client
 void notifyClientWholeLog(){
-  File dataLog = SD.open("/dataLog.json", "r");
-
-  if(!dataLog){
+  File dataLogFile = SD.open("/dataLog.json", "r");
+  if (!dataLogFile) {
     Serial.println("Failed to open dataLog file");
     return;
   }
 
-  // create json object
+  // Create JSON object
   JsonDocument doc;
-  deserializeJson(doc, dataLog);
-  dataLog.close();
+  DeserializationError error = deserializeJson(doc, dataLogFile);
+  dataLogFile.close();
 
-  // serialize json object to string
+  if (error) {
+    Serial.println("Failed to read file, using default configuration");
+    return;
+  }
+
+  // Serialize JSON object to string
   String output;
   serializeJson(doc, output);
 
-  // send json object to client
+  // Send JSON object to all connected clients
   ws.textAll(output);
-
 }
 
 
@@ -545,12 +578,11 @@ void createDataLog(){
     return;
   }
 
-  // create json object
+  // Create a JSON array
   JsonDocument doc;
-  doc["accumulatedValue"] = 0;
-  doc["time"] = 0;
+  JsonArray logArray = doc["log"].to<JsonArray>();
 
-  // serialize json object to file
+  // Serialize JSON array to file
   if(serializeJson(doc, dataLog) == 0){
     Serial.println("Failed to write to file");
   }
@@ -561,41 +593,44 @@ void createDataLog(){
 
 // add data to log
 void addDataLog(dataLog log){
-  // first read the json file and deserialize it
-  // then add the new data to the json object
-  // then re-seralize the json object and overwrite it to the file
+  
+  // First read the JSON file and deserialize it
+  File dataLogFile = SD.open("/dataLog.json", "r");
+  if(!dataLogFile){
+    Serial.println("Failed to open dataLog file");
+    return;
+  }
 
-  // create json object
+  // Create JSON object
   JsonDocument doc;
-  File dataLog = SD.open("/dataLog.json", "r");
-  if(!dataLog){
-    Serial.println("Failed to open dataLog file");
+  DeserializationError error = deserializeJson(doc, dataLogFile);
+  dataLogFile.close();
+
+  if(error){
+    Serial.println("Failed to read file, using default configuration");
     return;
   }
 
-  // deserialize json object
-  deserializeJson(doc, dataLog);
-  dataLog.close();
+  // Get the array from the document
+  JsonArray logArray = doc["log"];
 
-  // add data to json object
-  doc["accumulatedValue"] = log.accumulatedValue;
-  doc["time"] = log.time;
+  // Create a new entry
+  JsonObject newLogEntry = logArray.add<JsonObject>();
+  newLogEntry["accumulatedValue"] = log.accumulatedValue;
+  newLogEntry["time"] = log.time;
 
-  // re-serialize json object to file
-  File dataLog = SD.open("/dataLog.json", "w");
-  if(!dataLog){
-    Serial.println("Failed to open dataLog file");
+  // Re-serialize JSON object to file
+  dataLogFile = SD.open("/dataLog.json", "w");
+  if(!dataLogFile){
+    Serial.println("Failed to open dataLog file for writing");
     return;
   }
 
-
-  if(serializeJson(doc, dataLog) == 0){
+  if(serializeJson(doc, dataLogFile) == 0){
     Serial.println("Failed to write to file");
   }
 
-
-  dataLog.close();
-
+  dataLogFile.close();
 }
 
 
@@ -614,6 +649,7 @@ void handleData( void * pvParameters){
   while(1){
     dataLog log;
     if(xQueueReceive(logQueue, &log, portMAX_DELAY)){
+      Serial.println("Handling Queue");
       // take mutex if available
       // then call function addDataLog(dataLog log) to add the log to the file
       if(xSemaphoreTake(SDMutex, portMAX_DELAY) == pdTRUE){
@@ -626,14 +662,39 @@ void handleData( void * pvParameters){
       
       
     }
+      vTaskDelay(100);
   }
 
 }
 
 
+
+void IRAM_ATTR isrImpulse() {
+  // Create log
+  dataLog log;
+
+  // Get time
+  if (getLocalTime(&timeinfo)) {
+    // Set time and accumulated value in log
+    log.time = mktime(&timeinfo);
+  } else {
+    log.time = 0; // Failed to get time, use default
+  }
+  
+  log.accumulatedValue = ++accumulatedValue;
+
+
+  // Send log to queue
+  // xQueueSendFromISR(logQueue, &log, NULL);
+
+  // Set pin to LOW
+  digitalWrite(interruptPin, LOW);
+}
+
+
 // impulse simulation task
 void simulateImpulse( void * pvParameters){
-  vTaskDelay(5000);
+  vTaskDelay(2000);
   while(1){
     // simulate impulse
     // send impulse to isrImpulse
@@ -641,71 +702,64 @@ void simulateImpulse( void * pvParameters){
     // send impulse in an interval of 10 seconds
     // send impulse in a random interval of 1-10 impulses
     int randomImpulse = random(1, 10);
+    Serial.print("Sending ");
+    Serial.print(randomImpulse);
+    Serial.println(" impulses");
     for(int i = 0; i < randomImpulse; i++){
-      digitalWrite(interruptPin, HIGH);
+      dataLog log;
+
+      // Get time
+      struct tm mytimeinfo;
+      if (getLocalTime(&mytimeinfo)) {
+        // Set time and accumulated value in log
+        log.time = mktime(&mytimeinfo);
+      } else {
+        log.time = 0; // Failed to get time, use default
+      }
+      
+      log.accumulatedValue = ++accumulatedValue;
+
+      Serial.print("Accumulated value: ");
+      Serial.println(accumulatedValue);
+
+      Serial.print("Time: ");
+      Serial.println(log.time);
+
+      // Send log to queue
+      if (xQueueSend(logQueue, &log, pdMS_TO_TICKS(100)) != pdPASS) {
+        Serial.println("Failed to send to queue");
+      }
       vTaskDelay(80);
     }
-    vTaskDelay(10000 - (randomImpulse * 80));
+    Serial.println("Impulses sent");
+    vTaskDelay(10000);
+  }
+}
+
+// Delete data log file from SD card
+void deleteDataLogFile() {
+  if (SD.exists("/dataLog.json")) {
+    if (SD.remove("/dataLog.json")) {
+      Serial.println("dataLog.json deleted successfully");
+      // then create it again
+      createDataLog();
+      accumulatedValue = 0;
+    }
+    else {
+      Serial.println("Failed to delete dataLog.json");
+    }
+  }
+  else {
+    Serial.println("dataLog.json does not exist");
   }
 }
 
 
+
 // hvad jeg mangler at implementere
-// send hele loggen til client ved start
 // download json fil
-// slet json fil fra client
-// sæt initial værdi for data sensor
 // anmod om at nulstille esp32 konfiguration (wifi)
-
-#pragma region Opgave formulering
-/*
-  Program projekt:
-
-  Få et input / signal fra en sensor eller andet, og opsaml det på esp32'eren.
-  Derefter præsenter det på en hjemmeside som esp32'eren hoster.
-
-  Esp32'eren skal også selv kunne konfigurere nætværket, så den kan forbinde til en router via SSID og password.
-  Denne konfiugration skal gemmes i en fil, så den kan huske det næste gang den tændes i data mappen via spiffs eller littleFS.
-
-  Den indsamlede data skal også gemmes i en csv fil. dette skal gøres på et SD-Kort.
-  på SD-Kortet skal der også ligges filer som bruges til at vise hjemmesiderne på.
-
-
-  Hjemmeside funkitonalitet:
-  - Vise data fra sensoren (csv fil)
-  - slette data fra sensoren (csv fil)
-  - Sæt initial value for data sensor (csv fil)
-  - download csv fil med data
-  - opsætte wifi
-  - reset esp32 konfiguration (wifi)
-
-
-  esp 1 funktionalitet:
-  - send impulser i et interval på 10 sekunder.
-  - afgør hvor mange impulser der skal sendes via math.rand.
-  - send impuls hvert 80ms.
-  
-  - forbind aldrig et output til et output
-  - forbind gnd til gnd for at få en fælles reference
-
-  esp 2 funktionalitet:
-  - host hjemmeside via async 
-  - benyt websocket til live update
-  - håndter konfiguartion af wifi
-  - modtag impulser fra esp 1
-  - gem impulser i en csv fil på SD-kort
-
-
-*/
-
-
-/*
-  video aflevering
-
-  - fortæl hvad projektet går ud på
-
-  - vis hvordan det virker
-
-  - afrund projektet, har jeg lært noget og hvordan kan jeg komme videre.
-*/
-#pragma endregion
+// ændre graf til at være en gauge
+// ændre data i graf til at være kwh og ikke impulser ved at finde gennemsnits tiden af hver impuls,
+// finde hvor mange gange der vil være en impuls på en time og gange det med 0.001
+// style på knapperne
