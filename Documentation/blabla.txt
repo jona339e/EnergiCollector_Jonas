@@ -1,0 +1,24 @@
+Præsentation af ESP32 Energiindsamlingsprojekt
+
+Hej alle sammen, og velkommen til denne præsentation af vores ESP32-baserede energiindsamlingsprojekt. Mit navn er [Dit navn], og i dag vil jeg guide jer gennem vores projekt og dets forskellige aspekter.
+
+Introduktion til Projektet
+Først vil jeg kort introducere projektet. Vores mål var at udvikle en løsning til at indsamle og visualisere energidata fra forskellige kilder ved hjælp af ESP32-mikrocontrolleren. Vi ønskede at skabe et brugervenligt webinterface, hvor brugere kunne se realtidsdata og administrere enheden.
+
+Hardware- og Softwarekomponenter
+Lad os starte med at se på de hardware- og softwarekomponenter, der udgør vores projekt. Vi bruger ESP32-mikrocontrolleren, der giver os WiFi-forbindelse og tilstrækkelig regnekraft til at håndtere dataindsamling og webserverfunktionalitet. Til dataindsamling bruger vi forskellige sensorer og måleenheder, der er tilsluttet ESP32'en.
+
+Webinterface
+Vi har udviklet et brugervenligt webinterface ved hjælp af HTML, CSS og JavaScript. Dette interface giver brugerne mulighed for at se energidata i form af en gauge chart i realtid. Derudover kan de downloade datalogs, slette data og indtaste konfigurationsmode for at ændre WiFi-indstillinger.
+
+WebSocket Kommunikation
+For at muliggøre realtidsopdateringer af energidata bruger vi WebSocket-kommunikation mellem ESP32'en og webklienten. Dette giver os mulighed for at opdatere chartet med nye datapunkter, så snart de er tilgængelige på ESP32'en.
+
+Data Logging
+Vi har implementeret data logging-funktionalitet, der gemmer energidata lokalt på enheden. Dette giver os mulighed for at arkivere data og analysere dem senere. Vi bruger enten LittleFS eller et SD-kort til at gemme datalogs afhængigt af brugerens præferencer.
+
+Konklusion
+Afslutningsvis har vores ESP32-energiindsamlingsprojekt vist sig at være en effektiv løsning til at indsamle, visualisere og administrere energidata. Med et brugervenligt webinterface, realtidsopdateringer og data logging-funktionalitet har vi opnået vores mål om at skabe en fleksibel og brugervenlig løsning.
+
+Spørgsmål og Diskussion
+Jeg vil nu åbne op for spørgsmål og diskussion omkring vores projekt. Tak for jeres opmærksomhed!
