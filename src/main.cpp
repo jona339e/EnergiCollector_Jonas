@@ -212,14 +212,20 @@ bool setupWifi(){
   WiFi.begin(config.ssid, config.password);
   Serial.print("Connecting to WiFi.."); 
   int i = 0;
+  bool didConnect = true;
   while (WiFi.status() != WL_CONNECTED) {
     if(i >= 30)
     {
       Serial.println("Failed to connect to WiFi");
-      return false;
+      didConnect = false;
+      break;
     }
     vTaskDelay(1000);
     Serial.print(".");
+    i++;
+  }
+  if(!didConnect){
+    return false;
   }
   Serial.println();
   if(!MDNS.begin("Energy_Collector")){
@@ -358,6 +364,34 @@ int setupConfig(){
   File configFile = LittleFS.open("/config.json", "r");
   if(!configFile){
     Serial.println("Failed to open config file creating new one...");
+    // create new config.json
+    configFile = LittleFS.open("/config.json", "w");
+    if(!configFile){
+      Serial.println("Failed to create config file");
+      return 0;
+    }
+    // write empty struct config to json file
+    JsonDocument doc;
+    doc["ssid"] = "";
+    doc["password"] = "";
+    doc["ip"] = "";
+    doc["gateway"] = "";
+
+    if(serializeJson(doc, configFile) == 0){
+      Serial.println("Failed to write to file");
+    }
+
+    configFile.close();
+    // list all files in the filesystem
+    Serial.println("Filesystem content:");
+    File root = LittleFS.open("/");
+    File file = root.openNextFile();
+    while(file){
+      Serial.print("  FILE: ");
+      Serial.println(file.name());
+      file = root.openNextFile();
+    }
+
     return 1;
   }
 
@@ -367,7 +401,7 @@ int setupConfig(){
   DeserializationError error = deserializeJson(doc, configFile);
   if(error){
     Serial.println("Failed to deserialize Json");
-    return 0;
+    return 1;
   }
 
   // give config struct the values from the config file
@@ -693,10 +727,26 @@ void addRoutes() {
     vTaskSuspend(handleDataHandle);
     vTaskSuspend(simulateImpulseHandle);
 
-    // delete config file
-    LittleFS.remove("/config.json");
+    // set config file to empty data
+    File configFile = LittleFS.open("/config.json", "w");
+    if(!configFile){
+      Serial.println("Failed to open config file for writing");
+      return;
+    }
+    // create json object
+    JsonDocument doc;
+    doc["ssid"] = "";
+    doc["password"] = "";
+    doc["ip"] = "";
+    doc["gateway"] = "";
 
+    // serialize json object to file
+    if(serializeJson(doc, configFile) == 0){
+      Serial.println("Failed to write to file");
+    }
 
+    configFile.close();
+    
     // restart esp
     ESP.restart();
   });
